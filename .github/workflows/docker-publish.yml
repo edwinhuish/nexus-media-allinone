@@ -1,7 +1,7 @@
 name: Build and Push Image
 
 # 仅手动触发。留空 version 时使用上游最新版本，并把 README.md 同步为镜像 Overview；
-# 指定 version 时不更新 Overview，且该版本已发布过则整次跳过。
+# 指定 version 时只发布该版本号（不打 latest）、不更新 Overview，且该版本已发布过则整次跳过。
 #
 # 版本解析与发布决策见 scripts/resolve-upstream-version.sh
 on:
@@ -67,9 +67,10 @@ jobs:
           build-args: |
             BACKEND_TAG=${{ env.BACKEND_TAG }}
             FRONTEND_TAG=${{ env.FRONTEND_TAG }}
+          # 指定版本时不打 latest：条件为假时该行求值为空，build-push-action 会忽略空行
           tags: |
             ${{ env.IMAGE_NAME }}:${{ env.BACKEND_TAG }}
-            ${{ env.IMAGE_NAME }}:latest
+            ${{ steps.version.outputs.publish_latest == 'true' && format('{0}:latest', env.IMAGE_NAME) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

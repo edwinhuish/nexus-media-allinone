@@ -11,6 +11,7 @@
 #
 #  输出协议 —— stdout 只输出 key=value（每行一条），便于调用方直接消费：
 #    publish=true|false          是否需要构建并推送
+#    publish_latest=true|false   是否同时把镜像标记为 latest（仅未指定版本时）
 #    update_overview=true|false  是否需要同步说明文档
 #    backend_tag=<版本>          上游后端使用的版本（publish=false 时省略）
 #    frontend_tag=<版本>         上游前端使用的版本（publish=false 时省略）
@@ -33,6 +34,7 @@ VERSION="${VERSION:-}"
 BACKEND_TAG=""
 FRONTEND_TAG=""
 PUBLISH=""
+PUBLISH_LATEST=""
 UPDATE_OVERVIEW=""
 
 API_BASE="https://hub.docker.com/v2/repositories"
@@ -93,6 +95,7 @@ nearest_greater_version_tag() {
 # 输出决策结果
 emit() {
     printf 'publish=%s\n' "${PUBLISH}"
+    printf 'publish_latest=%s\n' "${PUBLISH_LATEST}"
     printf 'update_overview=%s\n' "${UPDATE_OVERVIEW}"
     if [ -n "${BACKEND_TAG}" ]; then
         printf 'backend_tag=%s\n' "${BACKEND_TAG}"
@@ -112,6 +115,7 @@ if [ -n "${VERSION}" ]; then
     if tag_exists "${IMAGE_NAME}" "${SPEC}"; then
         log "版本 ${SPEC} 已发布（${IMAGE_NAME}:${SPEC}），跳过构建与推送"
         PUBLISH=false
+        PUBLISH_LATEST=false
         UPDATE_OVERVIEW=false
         emit
         exit 0
@@ -134,7 +138,9 @@ if [ -n "${VERSION}" ]; then
         log "上游前端无 ${SPEC}，改用更高的最近版本 ${FRONTEND_TAG}"
     fi
 
+    # 指定版本时只发布该版本号，不覆盖 latest
     PUBLISH=true
+    PUBLISH_LATEST=false
     UPDATE_OVERVIEW=false
 else
     BACKEND_TAG="$(latest_version_tag "${BACKEND_REPO}")"
@@ -143,6 +149,7 @@ else
         die "未能解析到上游版本 tag（backend='${BACKEND_TAG}' frontend='${FRONTEND_TAG}'）"
     fi
     PUBLISH=true
+    PUBLISH_LATEST=true
     UPDATE_OVERVIEW=true
 fi
 
