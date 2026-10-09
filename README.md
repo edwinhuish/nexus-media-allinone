@@ -4,9 +4,25 @@
 对外只暴露一个端口。
 
 - 镜像：`edwinhuish/nexus-media-allinone`
+- **源码仓库**：[github.com/edwinhuish/nexus-media-allinone](https://github.com/edwinhuish/nexus-media-allinone)
 - 上游项目：[linyuan0213/nexus-media](https://github.com/linyuan0213/nexus-media)、[linyuan0213/nexus-media-web](https://github.com/linyuan0213/nexus-media-web)
 - 安装步骤与格式对齐上游 [docs/installation.md](https://github.com/linyuan0213/nexus-media/blob/master/docs/installation.md)，
   与本镜像的差异见文末「与上游两容器方案的差异」
+
+## 源码与问题反馈
+
+本镜像的全部源码与部署文件（`Dockerfile`、`rootfs/`、`docker-compose*.yml`、`scripts/`）
+以及本文档都托管在 GitHub 仓库
+**[edwinhuish/nexus-media-allinone](https://github.com/edwinhuish/nexus-media-allinone)**：
+
+| 用途 | 地址 |
+|---|---|
+| 查阅源码、了解项目详情 | [github.com/edwinhuish/nexus-media-allinone](https://github.com/edwinhuish/nexus-media-allinone) |
+| 提交问题、建议与需求 | [github.com/edwinhuish/nexus-media-allinone/issues](https://github.com/edwinhuish/nexus-media-allinone/issues) |
+| 上游项目（nexus-media 本体） | [github.com/linyuan0213/nexus-media](https://github.com/linyuan0213/nexus-media) |
+
+> 请按问题归属选择仓库：与本镜像的**整合方式、单容器部署、Nginx 合并配置、镜像发布**
+> 相关的问题提交到本仓库；与 nexus-media 本体的**功能与业务**相关的问题提交到上游仓库。
 
 ## 关于本仓库
 
