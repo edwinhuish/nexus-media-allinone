@@ -1,9 +1,14 @@
 name: Build and Push Image
 
-# 仅手动触发。留空 version 时使用上游最新版本，并把 README.md 同步为镜像 Overview；
-# 指定 version 时只发布该版本号（不打 latest）、不更新 Overview，且该版本已发布过则整次跳过。
+# 仅手动触发。留空 version 时使用上游最新版本并同时打 latest；
+# 指定 version 时只发布该版本号（不打 latest），且该版本已发布过则整次跳过。
 #
 # 版本解析与发布决策见 scripts/resolve-upstream-version.sh
+#
+# 注：Docker Hub 的仓库 Overview 不做自动同步。该接口要求令牌具备
+# Read + Write + Delete 权限，仅 Read & Write 会返回 403 insufficient scope，
+# 而本仓库不愿在 CI 中持有 delete 权限。需要更新 Overview 时，
+# 请在 Docker Hub 仓库页面手动粘贴 README.md。
 on:
   workflow_dispatch:
     inputs:
@@ -73,16 +78,3 @@ jobs:
             ${{ steps.version.outputs.publish_latest == 'true' && format('{0}:latest', env.IMAGE_NAME) || '' }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-
-      - name: 更新 Docker Hub Overview（使用 README.md）
-        if: steps.version.outputs.update_overview == 'true'
-        # 描述同步失败不影响镜像发布结果，只告警不标红
-        continue-on-error: true
-        # 直接调用脚本，不依赖第三方 action；失败时脚本会打印状态码、响应头与
-        # 响应体，便于区分「token 权限不足(403)」与「Cloudflare WAF 拦截 README 内容(403)」
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-          DOCKERHUB_REPOSITORY: ${{ env.IMAGE_NAME }}
-          README_FILEPATH: ./README.md
-        run: ./scripts/update-dockerhub-overview.sh
