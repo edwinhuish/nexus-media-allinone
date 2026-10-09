@@ -76,9 +76,13 @@ jobs:
 
       - name: 更新 Docker Hub Overview（使用 README.md）
         if: steps.version.outputs.update_overview == 'true'
-        uses: peter-evans/dockerhub-description@v5
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-          repository: ${{ env.IMAGE_NAME }}
-          readme-filepath: ./README.md
+        # 描述同步失败不影响镜像发布结果，只告警不标红
+        continue-on-error: true
+        # 直接调用脚本，不依赖第三方 action；失败时脚本会打印状态码、响应头与
+        # 响应体，便于区分「token 权限不足(403)」与「Cloudflare WAF 拦截 README 内容(403)」
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          DOCKERHUB_REPOSITORY: ${{ env.IMAGE_NAME }}
+          README_FILEPATH: ./README.md
+        run: ./scripts/update-dockerhub-overview.sh
