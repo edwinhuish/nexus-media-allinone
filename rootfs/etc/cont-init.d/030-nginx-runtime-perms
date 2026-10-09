@@ -1,0 +1,43 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+# =============================================================================
+#  030-nginx-runtime-perms
+#
+#  执行顺序在 020-fixuser 之后（s6 cont-init.d 按文件名排序执行）。
+#  020-fixuser 只把 nexus 用户/组的 uid/gid 改成 PUID/PGID，并 chown ${HOME} 与
+#  /config；本镜像新增的目录不在其中，PUID != 911 时会逐个出问题：
+#
+#    /usr/share/nginx/html    前端产物（构建期 chown nexus:nexus，改 uid 后失配）→ 403
+#    /var/log/nginx           访问日志与错误日志                                    → nginx 启动失败
+#    /run/nginx               新增的 pid 目录（上游写 /var/run/nginx.pid 亦为权限问题）→ nginx 启动失败
+#    /var/lib/nginx/{body,proxy,...}  请求体 / 代理临时文件                         → 大文件上传 500
+#
+#  故在此统一对齐属主，保证容器内进程身份与宿主机 PUID/PGID 完全一致。
+# =============================================================================
+
+function __fix_nginx_perms {
+
+    local nex_uid nex_gid
+    nex_uid="$(id -u nexus 2>/dev/null || echo '?')"
+    nex_gid="$(id -g nexus 2>/dev/null || echo '?')"
+    echo "对齐 Nginx 运行目录属主：nexus(${nex_uid}:${nex_gid})"
+
+    mkdir -p /var/log/nginx /run/nginx \
+             /var/lib/nginx/body /var/lib/nginx/proxy \
+             /var/lib/nginx/fastcgi /var/lib/nginx/uwsgi /var/lib/nginx/scgi
+
+    chown -R nexus:nexus /var/log/nginx /run/nginx /var/lib/nginx 2>/dev/null || true
+
+    # 前端产物：只在属主确实不匹配时才递归 chown，避免每次启动都遍历整个 dist
+    if [ -d /usr/share/nginx/html ]; then
+        if [ "$(stat -c '%u:%g' /usr/share/nginx/html)" != "${nex_uid}:${nex_gid}" ]; then
+            echo "前端产物属主不匹配，重新对齐 /usr/share/nginx/html"
+            chown -R nexus:nexus /usr/share/nginx/html 2>/dev/null || true
+        fi
+    fi
+
+    # 配置文件交给 nexus 读取（上游模板可能以 root:root 落地）
+    chown nexus:nexus /etc/nginx/nginx.conf /etc/nginx/nginx.conf.template 2>/dev/null || true
+}
+
+__fix_nginx_perms 2>&1 | sed "s#^#cont-init: info: $(realpath "$0"): &#g"

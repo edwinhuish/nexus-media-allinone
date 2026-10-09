@@ -1,0 +1,68 @@
+version: '3'
+
+vars:
+  CONTAINER: nexus-media
+  WEB_PORT: '8080'
+
+tasks:
+  default:
+    desc: 列出所有任务
+    silent: true
+    cmds:
+      - task --list
+
+  build:
+    desc: 构建整合镜像
+    cmds:
+      - docker compose build
+
+  up:
+    desc: 启动（后台）
+    cmds:
+      - docker compose up -d
+
+  down:
+    desc: 停止并移除容器（保留 ./data）
+    cmds:
+      - docker compose down
+
+  restart:
+    desc: 重启
+    cmds:
+      - docker compose restart
+
+  logs:
+    desc: 跟踪容器日志
+    cmds:
+      - docker compose logs -f --tail=200
+
+  shell:
+    desc: 进入容器（nexus 身份）
+    cmds:
+      - docker exec -it -u nexus {{.CONTAINER}} bash
+
+  verify:
+    desc: 验收：端口暴露 / PUID-PGID / 监听地址 / HTTP
+    cmds:
+      - bash scripts/verify.sh {{.CONTAINER}} {{.WEB_PORT}}
+
+  nginx-test:
+    desc: 本地校验 Nginx 路由规则（需本机有 nginx 二进制）
+    cmds:
+      - bash scripts/nginx-routing-test.sh
+
+  nginx-conf:
+    desc: 打印容器内实际渲染出的 nginx.conf
+    cmds:
+      - docker exec {{.CONTAINER}} cat /etc/nginx/nginx.conf
+
+  ports:
+    desc: 查看端口发布情况
+    cmds:
+      - docker port {{.CONTAINER}}
+
+  clean:
+    desc: 停止并清理容器与镜像
+    prompt: 确认删除容器与镜像？（./data 不会被删除）
+    cmds:
+      - docker compose down --rmi local

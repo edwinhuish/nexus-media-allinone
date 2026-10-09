@@ -1,0 +1,57 @@
+# Nexus Media 基础版：前后端 + Redis，使用 SQLite（无需外部数据库）
+# 启动：docker compose up -d
+services:
+  nexus-media:
+    image: edwinhuish/nexus-media-allinone:latest
+    container_name: nexus-media
+    hostname: nexus-media
+    restart: always
+
+    # 唯一对外入口
+    ports:
+      - "${WEB_PORT:-8080}:8080"
+
+    volumes:
+      # 配置 / SQLite / 插件数据 / 日志
+      - ./data:/data
+      # 媒体库：改成你自己的目录
+      - ${VIDEO_DIR:-/video}:/video
+
+    environment:
+      # 容器内进程身份 = 宿主机用户（id -u / id -g），保证文件权限一致
+      PUID: ${PUID:-0}
+      PGID: ${PGID:-0}
+      UMASK: ${UMASK:-000}
+      TZ: ${TZ:-Asia/Shanghai}
+      # Redis 与后端同网络，不需要对外映射端口
+      REDIS__HOST: ${REDIS__HOST:-localhost}
+      REDIS__PORT: ${REDIS__PORT:-6379}
+      REDIS__DB: ${REDIS__DB:-0}
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+    networks:
+      - nexus-media-network
+    depends_on:
+      redis:
+        condition: service_started
+
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-media-redis
+    restart: always
+    networks:
+      - nexus-media-network
+    volumes:
+      - ./data/redis_data:/data
+    command: redis-server --save "" --appendonly no --dir /data
+
+networks:
+  nexus-media-network:
+    driver: bridge
+    name: nexus-media-network

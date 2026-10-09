@@ -1,0 +1,8 @@
+# 构建上下文只需本目录这几个文件
+.git
+.env
+data/
+.tmp/
+*~
+*.log
+node_modules/

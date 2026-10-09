@@ -1,0 +1,30 @@
+#!/usr/bin/with-contenv bash
+# shellcheck shell=bash
+# =============================================================================
+#  nexus-media 后端服务（Granian / FastAPI）
+#
+#  基于上游 docker/rootfs/etc/services.d/nexus-media/run，仅两处改动：
+#    1. 显式把应用绑到 NEXUS_HOST（默认 127.0.0.1）——只允许容器内 Nginx 访问，
+#       容器外（含同网络的其他容器）都碰不到 3000 端口。
+#    2. 让 NEXUS_PORT 同时决定「应用监听端口」与「Nginx upstream 端口」。
+#       上游镜像里 NEXUS_PORT 只作用于 Nginx，改了它反而会把请求代理到错误端口；
+#       这里通过 APP__WEB_PORT 把应用拉到同一端口上，NEXUS_PORT 才真正可信。
+#       （环境变量优先级高于 config.yaml，不会与 /data/config.yaml 冲突）
+# =============================================================================
+
+umask ${UMASK}
+
+export APP__WEB_PORT="${NEXUS_PORT:-3000}"
+export APP__WEB_HOST="${NEXUS_HOST:-127.0.0.1}"
+
+# 数据库迁移（幂等）。compose 中由 migration 服务负责时可设 SKIP_MIGRATION=true 跳过。
+if [ "${SKIP_MIGRATION:-false}" != "true" ]; then
+    bash -c "cd ${WORKDIR} && .venv/bin/alembic upgrade head"
+fi
+
+# s6-notifyoncheck 需要在服务目录执行才能读取 notification-fd。
+# 健康探测用 127.0.0.1 而非 localhost：应用只绑 IPv4 回环，避免 localhost 先解析
+# 到 ::1 造成探测失败、nginx 服务（依赖本服务）永远不启动。
+exec \
+    s6-notifyoncheck -d -n 300 -w 1000 -c "nc -z 127.0.0.1 ${NEXUS_PORT:-3000}" \
+    s6-setuidgid nexus bash -c 'cd "${WORKDIR}" && exec sh ./start-prod.sh'

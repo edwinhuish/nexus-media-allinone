@@ -1,0 +1,250 @@
+# =============================================================================
+#  Nexus Media All-in-One — 唯一对外入口 Nginx
+#
+#    :8080 ──┬── /                      前端 SPA（/usr/share/nginx/html）
+#            ├── /api/  /img/  /ws      反向代理 → http://127.0.0.1:__NEXUS_PORT__
+#            ├── /health /docs /openapi.json        同上（穿透）
+#            └── /static/ /assets/      前端产物优先，未命中回落后端同名路径
+#
+#  渲染方式：/etc/cont-init.d/021-nginx-port 在容器启动时把 __NEXUS_PORT__
+#            替换为 $NEXUS_PORT（默认 3000）并写入 /etc/nginx/nginx.conf。
+#
+#  说明：本文件由上游【后端】镜像的 nginx.conf.template 与【前端】镜像的
+#        nginx.conf.template 合并而来，冲突项取舍见 README「配置合并说明」。
+# =============================================================================
+
+user nexus;
+worker_processes auto;
+error_log /var/log/nginx/error.log warn;
+# 上游用 /var/run/nginx.pid；/var/run 默认仅 root 可写，PUID 非 0 时 nginx 会启动失败。
+# 改为独立目录，由 030-nginx-runtime-perms 预创建并 chown 给 nexus。
+pid /run/nginx/nginx.pid;
+
+events {
+    worker_connections 1024;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # 上游 mime.types 不含 mjs，而 Vben 前端产物里有 .mjs（与前端镜像做法一致）
+    types {
+        application/javascript mjs;
+    }
+
+    log_format main '$remote_addr - $remote_user [$time_local] "$request" '
+                    '$status $body_bytes_sent "$http_referer" '
+                    '"$http_user_agent" "$http_x_forwarded_for"';
+
+    access_log /var/log/nginx/access.log main;
+
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off;
+
+    # 媒体库上传体积上限（与上游后端镜像保持一致，前端镜像缺此配置会退回 1m）
+    client_max_body_size 500M;
+
+    # 临时文件目录：必须显式指定并保证 nexus 可写。
+    # client_body_temp_path 尤其关键——超过 client_body_buffer_size 的上传会被
+    # 落盘到此处，PUID != 0 且目录不可写时表现为「大文件上传 500」。
+    client_body_temp_path /var/lib/nginx/body;
+    proxy_temp_path       /var/lib/nginx/proxy;
+    fastcgi_temp_path     /var/lib/nginx/fastcgi;
+    uwsgi_temp_path       /var/lib/nginx/uwsgi;
+    scgi_temp_path        /var/lib/nginx/scgi;
+
+    # ---- 压缩（取自前端镜像配置）----
+    gzip on;
+    gzip_buffers 32 16k;
+    gzip_comp_level 6;
+    gzip_min_length 1k;
+    gzip_types text/plain
+               text/css
+               application/javascript
+               application/json
+               application/x-javascript
+               text/xml
+               application/xml
+               application/xml+rss
+               text/javascript;
+    gzip_vary on;
+    # 前端产物若含预压缩 .gz（Vben 构建会产出），直接命中 .gz 省掉实时压缩开销。
+    # Debian trixie 的 nginx 包（1.26.3-3+deb13u9）已编译 ngx_http_gzip_static_module，
+    # 与上游前端镜像（nginx:stable-alpine）行为一致；未命中 .gz 时自动回退到原文件。
+    gzip_static on;
+
+    # ---- 后端上游：只在容器内回环可达 ----
+    upstream nexus_backend {
+        server 127.0.0.1:__NEXUS_PORT__;
+        keepalive 32;
+    }
+
+    server {
+        listen 8080 default_server;
+        listen [::]:8080 default_server;
+        server_name _;
+        merge_slashes off;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        # ---- 后端不可用：返回 JSON，前端可直接读取 message 做提示 ----
+        error_page 502 503 504 /__backend_unavailable__;
+        location = /__backend_unavailable__ {
+            internal;
+            default_type application/json;
+            add_header Access-Control-Allow-Origin  "*" always;
+            add_header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS" always;
+            add_header Access-Control-Allow-Headers "*" always;
+            return 503 '{"code":-1,"message":"服务正在启动中，请稍后刷新..."}';
+        }
+
+        # ================= 后端 API（反代到 127.0.0.1:__NEXUS_PORT__）=================
+
+        location /api/ {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            # 配合 upstream keepalive 复用长连接
+            proxy_set_header Connection        "";
+            proxy_buffering off;
+            proxy_connect_timeout 300s;
+            proxy_send_timeout    300s;
+            proxy_read_timeout    300s;
+        }
+
+        # 图片反代接口（后端代取外部图床，避免前端直连被限流）
+        location = /img {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location /img/ {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            proxy_connect_timeout 60s;
+            proxy_send_timeout    60s;
+            proxy_read_timeout    60s;
+        }
+
+        location = /health {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host       $host;
+            proxy_set_header Connection "";
+            access_log off;
+        }
+
+        location = /openapi.json {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        location /docs {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+        }
+
+        # WebSocket（实时日志 / 任务进度）
+        location /ws {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Upgrade    $http_upgrade;
+            proxy_set_header Connection "upgrade";
+            proxy_set_header Host       $host;
+            proxy_set_header X-Real-IP  $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_read_timeout 3600s;
+            proxy_send_timeout 3600s;
+        }
+
+        # ================= 前端静态产物 =================
+
+        location ^~ /assets/ {
+            root /usr/share/nginx/html;
+            try_files $uri =404;
+            access_log off;
+            expires 30d;
+            add_header Cache-Control "public, max-age=2592000, immutable";
+        }
+
+        # /static/ 两边都有：前端产物优先，未命中再回落后端（上游后端 nginx 有该 alias）
+        location ^~ /static/ {
+            root /usr/share/nginx/html;
+            try_files $uri @backend_static;
+            access_log off;
+            expires 30d;
+            add_header Cache-Control "public, max-age=2592000, immutable";
+        }
+
+        location = /sw.js {
+            root /usr/share/nginx/html;
+            try_files $uri =404;
+            access_log off;
+            add_header Cache-Control "no-cache";
+        }
+
+        location = /manifest.webmanifest {
+            root /usr/share/nginx/html;
+            try_files $uri =404;
+            access_log off;
+        }
+
+        location = /favicon.ico {
+            root /usr/share/nginx/html;
+            try_files $uri =404;
+            access_log off;
+        }
+
+        # SPA 入口不能长缓存，否则发版后用户仍命中旧 index.html 引用已删除的 chunk
+        location = /index.html {
+            add_header Cache-Control "no-store, must-revalidate";
+        }
+
+        # ---- 兜底：前端 SPA 路由 ----
+        location / {
+            try_files $uri $uri/ /index.html;
+        }
+
+        # ---- 后端 /static/ 回落（仅在上一级 try_files 未命中时进入）----
+        location @backend_static {
+            proxy_pass http://nexus_backend;
+            proxy_http_version 1.1;
+            proxy_set_header Host              $host;
+            proxy_set_header X-Real-IP         $remote_addr;
+            proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+            expires 1y;
+            add_header Cache-Control "public, immutable";
+        }
+    }
+}
