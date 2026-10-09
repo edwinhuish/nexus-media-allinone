@@ -3,6 +3,10 @@ version: '3'
 vars:
   CONTAINER: nexus-media
   WEB_PORT: '8080'
+  IMAGE: edwinhuish/nexus-media-allinone
+  # 本地构建用的上游基座版本，可覆盖：task build BACKEND_TAG=4.21.9 FRONTEND_TAG=4.21.9
+  BACKEND_TAG: latest
+  FRONTEND_TAG: latest
 
 tasks:
   default:
@@ -12,9 +16,9 @@ tasks:
       - task --list
 
   build:
-    desc: 构建整合镜像
+    desc: 本地构建整合镜像（打 latest 标签，可用 BACKEND_TAG/FRONTEND_TAG 变量锁定上游版本）
     cmds:
-      - docker compose build
+      - docker build -t {{.IMAGE}}:latest --build-arg BACKEND_TAG={{.BACKEND_TAG}} --build-arg FRONTEND_TAG={{.FRONTEND_TAG}} .
 
   up:
     desc: 启动（后台）

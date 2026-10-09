@@ -1,23 +1,20 @@
 # =============================================================================
 #  Nexus Media All-in-One — 唯一对外入口 Nginx
 #
-#    :8080 ──┬── /                      前端 SPA（/usr/share/nginx/html）
-#            ├── /api/  /img/  /ws      反向代理 → http://127.0.0.1:__NEXUS_PORT__
-#            ├── /health /docs /openapi.json        同上（穿透）
-#            └── /static/ /assets/      前端产物优先，未命中回落后端同名路径
+#    :8080 ──┬── /                       前端 SPA（/usr/share/nginx/html）
+#            ├── /api/ /img/ /ws         反向代理 → http://127.0.0.1:__NEXUS_PORT__
+#            ├── /health /docs /openapi.json
+#            └── /static/ /assets/       前端产物优先，未命中回落后端同名路径
 #
-#  渲染方式：/etc/cont-init.d/021-nginx-port 在容器启动时把 __NEXUS_PORT__
-#            替换为 $NEXUS_PORT（默认 3000）并写入 /etc/nginx/nginx.conf。
-#
-#  说明：本文件由上游【后端】镜像的 nginx.conf.template 与【前端】镜像的
-#        nginx.conf.template 合并而来，冲突项取舍见 README「配置合并说明」。
+#  __NEXUS_PORT__ 由 /etc/cont-init.d/021-nginx-port 启动时渲染为 $NEXUS_PORT。
+#  本文件由上游后端 / 前端两个 nginx.conf.template 合并而来，
+#  冲突项取舍见 README「配置合并时的取舍」。
 # =============================================================================
 
 user nexus;
 worker_processes auto;
 error_log /var/log/nginx/error.log warn;
-# 上游用 /var/run/nginx.pid；/var/run 默认仅 root 可写，PUID 非 0 时 nginx 会启动失败。
-# 改为独立目录，由 030-nginx-runtime-perms 预创建并 chown 给 nexus。
+# 上游用 /var/run/nginx.pid（默认仅 root 可写）；改用独立目录，由 030-nginx-runtime-perms 预置属主
 pid /run/nginx/nginx.pid;
 
 events {
@@ -30,7 +27,7 @@ http {
     include /etc/nginx/mime.types;
     default_type application/octet-stream;
 
-    # 上游 mime.types 不含 mjs，而 Vben 前端产物里有 .mjs（与前端镜像做法一致）
+    # 上游 mime.types 不含 mjs，而 Vben 前端产物里有 .mjs
     types {
         application/javascript mjs;
     }
@@ -48,19 +45,17 @@ http {
     types_hash_max_size 2048;
     server_tokens off;
 
-    # 媒体库上传体积上限（与上游后端镜像保持一致，前端镜像缺此配置会退回 1m）
+    # 媒体库上传体积上限
     client_max_body_size 500M;
 
-    # 临时文件目录：必须显式指定并保证 nexus 可写。
-    # client_body_temp_path 尤其关键——超过 client_body_buffer_size 的上传会被
-    # 落盘到此处，PUID != 0 且目录不可写时表现为「大文件上传 500」。
+    # 临时目录必须显式指定并保证 nexus 可写，否则大文件上传会 500
     client_body_temp_path /var/lib/nginx/body;
     proxy_temp_path       /var/lib/nginx/proxy;
     fastcgi_temp_path     /var/lib/nginx/fastcgi;
     uwsgi_temp_path       /var/lib/nginx/uwsgi;
     scgi_temp_path        /var/lib/nginx/scgi;
 
-    # ---- 压缩（取自前端镜像配置）----
+    # ---- 压缩 ----
     gzip on;
     gzip_buffers 32 16k;
     gzip_comp_level 6;
@@ -75,9 +70,7 @@ http {
                application/xml+rss
                text/javascript;
     gzip_vary on;
-    # 前端产物若含预压缩 .gz（Vben 构建会产出），直接命中 .gz 省掉实时压缩开销。
-    # Debian trixie 的 nginx 包（1.26.3-3+deb13u9）已编译 ngx_http_gzip_static_module，
-    # 与上游前端镜像（nginx:stable-alpine）行为一致；未命中 .gz 时自动回退到原文件。
+    # 前端产物含预压缩 .gz 时直接命中；未命中自动回退原文件
     gzip_static on;
 
     # ---- 后端上游：只在容器内回环可达 ----
@@ -123,7 +116,7 @@ http {
             proxy_read_timeout    300s;
         }
 
-        # 图片反代接口（后端代取外部图床，避免前端直连被限流）
+        # 图片反代接口（后端代取外部图床）
         location = /img {
             proxy_pass http://nexus_backend;
             proxy_http_version 1.1;
@@ -197,7 +190,7 @@ http {
             add_header Cache-Control "public, max-age=2592000, immutable";
         }
 
-        # /static/ 两边都有：前端产物优先，未命中再回落后端（上游后端 nginx 有该 alias）
+        # /static/ 两边都有：前端产物优先，未命中回落后端
         location ^~ /static/ {
             root /usr/share/nginx/html;
             try_files $uri @backend_static;
@@ -225,7 +218,7 @@ http {
             access_log off;
         }
 
-        # SPA 入口不能长缓存，否则发版后用户仍命中旧 index.html 引用已删除的 chunk
+        # SPA 入口不做长缓存，避免发版后仍命中旧 index.html
         location = /index.html {
             add_header Cache-Control "no-store, must-revalidate";
         }

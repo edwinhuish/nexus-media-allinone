@@ -1,5 +1,5 @@
-# Nexus Media 基础版：前后端 + Redis，使用 SQLite（无需外部数据库）
-# 启动：docker compose up -d
+# Nexus Media 基础版部署示例：前后端 + Redis，使用 SQLite（无需外部数据库）
+# 用法：把本文件与 .env 放到部署目录，docker compose up -d
 services:
   nexus-media:
     image: edwinhuish/nexus-media-allinone:latest
@@ -12,21 +12,17 @@ services:
       - "${WEB_PORT:-8080}:8080"
 
     volumes:
-      # 配置 / SQLite / 插件数据 / 日志
-      - ./data:/data
-      # 媒体库：改成你自己的目录
-      - ${VIDEO_DIR:-/video}:/video
+      - ./data:/data                  # 配置 / SQLite / 插件数据 / 日志
+      - ${VIDEO_DIR:-/video}:/video   # 媒体库，改成你自己的目录
 
     environment:
-      # 容器内进程身份 = 宿主机用户（id -u / id -g），保证文件权限一致
-      PUID: ${PUID:-0}
+      PUID: ${PUID:-0}                # 容器内进程身份 = 宿主机用户，保证文件权限一致
       PGID: ${PGID:-0}
       UMASK: ${UMASK:-000}
       TZ: ${TZ:-Asia/Shanghai}
-      # Redis 与后端同网络，不需要对外映射端口
-      REDIS__HOST: ${REDIS__HOST:-localhost}
-      REDIS__PORT: ${REDIS__PORT:-6379}
-      REDIS__DB: ${REDIS__DB:-0}
+      REDIS__HOST: ${REDIS_HOST:-redis}
+      REDIS__PORT: ${REDIS_PORT:-6379}
+      REDIS__DB: ${REDIS_DB:-0}
 
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/health || exit 1"]

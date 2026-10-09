@@ -1,10 +1,9 @@
-# =============================================================================
-#  Nexus Media All-in-One
+# Nexus Media 完整版（PostgreSQL）部署示例：前后端 + Redis + PostgreSQL + OCR + Chrome
+# 用法：把本文件与 .env 放到部署目录，docker compose -f docker-compose.postgresql.yml up -d
+# 必填：.env 中设置 DB_PASSWORD、VNC_PASSWORD（禁止使用默认密码）
 #
-#  对外只发布一个端口：${WEB_PORT:-8080} → 容器内 Nginx(8080)
-#  后端 3000 不发布，通过 Nginx 反向代理到 8080
-# =============================================================================
-
+# 只发布一个端口：${WEB_PORT:-8080} → 容器内 Nginx(8080)，
+# 后端 3000 不发布，由 Nginx 反向代理。
 services:
   nexus-media:
     image: edwinhuish/nexus-media-allinone:latest
@@ -17,23 +16,19 @@ services:
       - "${WEB_PORT:-8080}:8080"
 
     volumes:
-      # 配置 / SQLite / 插件数据 / 日志
-      - ./data:/data
-      # 媒体库：改成你自己的目录
-      - ${VIDEO_DIR:-/video}:/video
+      - ./data:/data                  # 配置 / 插件数据 / 日志
+      - ${VIDEO_DIR:-/video}:/video   # 媒体库，改成你自己的目录
 
     environment:
-      # 容器内进程身份 = 宿主机用户（id -u / id -g），保证文件权限一致
-      PUID: ${PUID:-0}
+      PUID: ${PUID:-0}                # 容器内进程身份 = 宿主机用户，保证文件权限一致
       PGID: ${PGID:-0}
       UMASK: ${UMASK:-000}
       TZ: ${TZ:-Asia/Shanghai}
-      # Redis 与后端同网络，不需要对外映射端口
-      REDIS__HOST: ${REDIS_HOST:-localhost}
+      REDIS__HOST: ${REDIS_HOST:-redis}
       REDIS__PORT: ${REDIS_PORT:-6379}
       REDIS__DB: ${REDIS_DB:-0}
-      # 需要外部数据库时取消注释（环境变量 > .env > config.yaml）
-      DATABASE__TYPE: ${DB_TYPE:-postgresql} # sqlite | mysql | postgresql
+      # 环境变量 > .env > config.yaml
+      DATABASE__TYPE: ${DB_TYPE:-postgresql}   # sqlite | mysql | postgresql
       DATABASE__HOST: ${DB_HOST:-postgresql}
       DATABASE__PORT: ${DB_PORT:-5432}
       DATABASE__USERNAME: ${DB_USERNAME:-nexus_media}

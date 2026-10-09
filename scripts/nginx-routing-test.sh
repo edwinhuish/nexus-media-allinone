@@ -2,12 +2,11 @@
 # =============================================================================
 #  Nginx 路由行为测试（无需 Docker）
 #
-#  用宿主机上的 nginx 二进制 + 一个 mock 后端，验证合并后的 nginx.conf.template
-#  是否按预期分流：
-#      前端 SPA / 前端静态资源   → 本地文件
-#      /api/ /health /img /docs  → 反向代理到 127.0.0.1:3000
-#      /static/ 两边都有         → 前端优先，未命中回落后端
-#      后端挂掉                  → 返回 JSON 503（而非 HTML 错误页）
+#  用 nginx 二进制 + mock 后端验证 nginx.conf.template 的分流：
+#      前端 SPA / 静态资源       → 本地文件
+#      /api/ /health /img /docs  → 反代 127.0.0.1:3000
+#      /static/                  → 前端优先，未命中回落后端
+#      后端挂掉                  → JSON 503（而非 HTML 错误页）
 #
 #  依赖：nginx、python3、curl
 #  用法：scripts/nginx-routing-test.sh [nginx 二进制路径]
